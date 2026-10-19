@@ -1,0 +1,37 @@
+name: Validate detection rules
+
+on:
+  push:
+    paths:
+      - "detections/**"
+      - "tools/check_rules.py"
+      - "requirements.txt"
+      - ".github/workflows/validate-rules.yml"
+  pull_request:
+    paths:
+      - "detections/**"
+      - "tools/check_rules.py"
+      - "requirements.txt"
+      - ".github/workflows/validate-rules.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check rule files
+        run: python tools/check_rules.py
