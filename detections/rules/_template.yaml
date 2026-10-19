@@ -1,0 +1,44 @@
+# Copy this file for each new rule, e.g. detections/rules/P6-001-password-spray.yaml
+id: P6-000
+title: ""
+status: draft              # draft | testing | production
+severity: medium           # informational | low | medium | high
+
+goal: |
+  What the rule detects and why it matters.
+
+mitre:
+  - tactic: ""             # e.g. Credential Access
+    technique: ""          # e.g. T1110.003
+  - tactic: ""
+    technique: ""
+
+data_sources:
+  - table: ""              # e.g. SigninLogs
+    connector: ""          # e.g. Microsoft Entra ID
+
+schedule:
+  frequency: 1h            # how often the rule runs
+  lookback: 1h             # how much data each run looks at
+
+threshold:
+  value: ""
+  reason: |
+    Why this number and not another.
+
+query: |
+  // KQL goes here, as many lines as needed
+
+blind_spots:
+  - ""
+
+false_positives:
+  - ""
+
+test:
+  attack_step: ""          # matches a step in attack-simulation/
+  expected_result: ""
+
+tuning_history:
+  - date: 2026-10-16
+    change: "Created."

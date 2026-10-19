@@ -1,0 +1,26 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# --- Mac and VS Code ---
+.DS_Store
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# --- Raw exports from the trial tenant (clean them before they go anywhere in the repo) ---
+exports-raw/
+
+# --- Terraform (only if P9 happens) ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
