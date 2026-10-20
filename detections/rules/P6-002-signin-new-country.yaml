@@ -1,0 +1,63 @@
+id: P6-002
+title: "Successful sign-in from a country the user has not used before"
+status: draft
+severity: medium
+
+goal: |
+  Detects a successful sign-in from a country that is not in the user's
+  normal countries for the last 14 days. A stolen password used from
+  abroad, for example after a password spray, often shows up this way.
+
+mitre:
+  - tactic: "Initial Access"
+    technique: "T1078.004"
+
+data_sources:
+  - table: "SigninLogs"
+    connector: "Microsoft Entra ID"
+
+schedule:
+  frequency: 1h
+  lookback: 14d
+
+threshold:
+  value: "Any successful sign-in from a country not seen for that user in the previous 14 days"
+  reason: |
+    No count threshold: one sign-in from a new country is enough to look at.
+    14 days is the longest lookback a Sentinel scheduled rule allows, and
+    gives each user a reasonable baseline. Severity is medium on its own,
+    because real travel also matches; together with P6-001 it points to a
+    likely compromise.
+
+query: |
+  let ref_time = now();
+  let baseline_period = 14d;
+  let detection_window = 1h;
+  let KnownCountries =
+      SigninLogs
+      | where TimeGenerated between ((ref_time - baseline_period) .. (ref_time - detection_window))
+      | where ResultType == "0"
+      | summarize KnownCountries = make_set(Location) by UserPrincipalName;
+  SigninLogs
+  | where TimeGenerated > ref_time - detection_window
+  | where ResultType == "0"
+  | join kind=inner KnownCountries on UserPrincipalName
+  | where not(set_has_element(KnownCountries, Location))
+  | project TimeGenerated, UserPrincipalName, IPAddress, Location, KnownCountries
+
+blind_spots:
+  - "New users with no sign-ins in the last 14 days are skipped (inner join), so the rule cannot judge them."
+  - "An attacker using a VPN exit in the user's own country does not trigger it."
+  - "Country comes from IP geolocation, which can be wrong."
+
+false_positives:
+  - "Real travel, and mobile roaming abroad."
+  - "Company VPNs or cloud proxies that exit in another country. Planned tuning: a watchlist of known VPN IPs."
+
+test:
+  attack_step: "signin-from-vpn-country"
+  expected_result: "One row: the compromised test user, the attacker IP, the VPN country, KnownCountries not containing it."
+
+tuning_history:
+  - date: 2026-10-20
+    change: "Created. Tested against sample data in detections/tests/P6-002-test.kql."

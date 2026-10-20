@@ -1,0 +1,38 @@
+// Test for P6-002: successful sign-in from a country the user has not used before.
+// Run in Azure Data Explorer or Sentinel Logs. ref_time is fixed here; the rule uses now().
+//
+// Expected: exactly 1 row
+//   erik@contoso.com  203.0.113.50  AL  KnownCountries ["SE"]  -> new country (true positive)
+//
+// Must NOT appear:
+//   frida@contoso.com   SE, her usual country                 -> normal sign-in
+//   anna@contoso.com    AL, but the sign-in failed            -> only successes count
+//   gustav@contoso.com  DE, no sign-ins in the baseline       -> no baseline, skipped (blind spot)
+
+let SigninLogs =
+    datatable(TimeGenerated:datetime, UserPrincipalName:string, IPAddress:string, ResultType:string, Location:string)
+    [
+        // Baseline: earlier days, normal sign-ins from Sweden
+        datetime(2026-10-15T08:00:00), "erik@contoso.com",   "198.51.100.20", "0",     "SE",
+        datetime(2026-10-17T08:00:00), "erik@contoso.com",   "198.51.100.20", "0",     "SE",
+        datetime(2026-10-16T09:00:00), "frida@contoso.com",  "198.51.100.10", "0",     "SE",
+        // Detection window (the last hour before ref_time)
+        datetime(2026-10-20T09:02:05), "erik@contoso.com",   "203.0.113.50",  "0",     "AL",  // new country -> SHOULD alert
+        datetime(2026-10-20T09:05:30), "frida@contoso.com",  "198.51.100.10", "0",     "SE",  // usual country -> no alert
+        datetime(2026-10-20T09:10:00), "anna@contoso.com",   "203.0.113.50",  "50126", "AL",  // failed, not a success -> no alert
+        datetime(2026-10-20T09:30:00), "gustav@contoso.com", "192.0.2.40",    "0",     "DE"   // no baseline (new user) -> no alert
+    ];
+let ref_time = datetime(2026-10-20T10:00:00);   // in the real rule: now()
+let baseline_period = 14d;
+let detection_window = 1h;
+let KnownCountries =
+    SigninLogs
+    | where TimeGenerated between ((ref_time - baseline_period) .. (ref_time - detection_window))
+    | where ResultType == "0"
+    | summarize KnownCountries = make_set(Location) by UserPrincipalName;
+SigninLogs
+| where TimeGenerated > ref_time - detection_window
+| where ResultType == "0"
+| join kind=inner KnownCountries on UserPrincipalName
+| where not(set_has_element(KnownCountries, Location))
+| project TimeGenerated, UserPrincipalName, IPAddress, Location, KnownCountries
