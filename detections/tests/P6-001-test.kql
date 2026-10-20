@@ -1,0 +1,28 @@
+// Test for P6-001. Run in Azure Data Explorer (or Sentinel Logs).
+// Expected: exactly 1 row, IPAddress 203.0.113.50, FailedUsers 5, SuccessUsers ["erik@contoso.com"].
+// Set min_failed_users to 6: expected 0 rows.
+
+let SigninLogs =
+    datatable(TimeGenerated:datetime, UserPrincipalName:string, IPAddress:string, ResultType:string, Location:string)
+    [
+        // One IP failing against many different users in a short window = password spray
+        datetime(2026-10-20T09:00:00), "anna@contoso.com",  "203.0.113.50", "50126", "SE",
+        datetime(2026-10-20T09:00:20), "bjorn@contoso.com", "203.0.113.50", "50126", "SE",
+        datetime(2026-10-20T09:00:45), "cecilia@contoso.com","203.0.113.50", "50126", "SE",
+        datetime(2026-10-20T09:01:10), "david@contoso.com", "203.0.113.50", "50126", "SE",
+        datetime(2026-10-20T09:01:40), "erik@contoso.com",  "203.0.113.50", "50126", "SE",
+        datetime(2026-10-20T09:02:05), "erik@contoso.com",  "203.0.113.50", "0",     "SE",  // the spray finally works
+        // Normal background noise: one user, one IP, a single typo then success
+        datetime(2026-10-20T09:05:00), "frida@contoso.com", "198.51.100.10","50126", "SE",
+        datetime(2026-10-20T09:05:30), "frida@contoso.com", "198.51.100.10","0",     "SE"
+    ];
+let min_failed_users = 4;
+SigninLogs
+| summarize
+    FailedUsers    = dcountif(UserPrincipalName, ResultType == "50126"),
+    FailedAttempts = countif(ResultType == "50126"),
+    SuccessUsers   = make_set_if(UserPrincipalName, ResultType == "0"),
+    FirstSeen      = min(TimeGenerated),
+    LastSeen       = max(TimeGenerated)
+    by IPAddress
+| where FailedUsers >= min_failed_users and array_length(SuccessUsers) > 0
