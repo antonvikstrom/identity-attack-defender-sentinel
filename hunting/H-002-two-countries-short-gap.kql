@@ -1,0 +1,22 @@
+// Hunt H-002: same user signs in successfully from two countries within a short time
+// Question: did a user sign in from two different countries closer in time than travel allows?
+//   That points to a shared account or someone else using it (stolen password or stolen session).
+// ATT&CK: Initial Access, T1078.004 (Valid Accounts: Cloud Accounts)
+// Data: SigninLogs (Microsoft Entra ID)
+// How to read: one row per suspicious pair. Look at Gap, the two IPs and countries, and whether
+//   one of them is a known VPN. Real travel is ruled out when the gap is too short.
+// Stronger variant (not emulated in the lab): compare by SessionId, since one session used from
+//   two countries points to a stolen session token (T1550.004).
+// Sample-data test: detections/tests/H-002-test.kql
+let max_gap = 1h;
+SigninLogs
+| where ResultType == "0"
+| project TimeGenerated, UserPrincipalName, IPAddress, Location
+| sort by UserPrincipalName asc, TimeGenerated asc
+| extend PrevUser = prev(UserPrincipalName), PrevTime = prev(TimeGenerated),
+         PrevLocation = prev(Location), PrevIP = prev(IPAddress)
+| where UserPrincipalName == PrevUser
+    and Location != PrevLocation
+    and TimeGenerated - PrevTime <= max_gap
+| project UserPrincipalName, PrevTime, PrevLocation, PrevIP, TimeGenerated, Location, IPAddress,
+          Gap = TimeGenerated - PrevTime

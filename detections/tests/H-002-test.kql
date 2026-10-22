@@ -1,0 +1,31 @@
+// Test for hunt H-002. Expected: 1 row.
+//   erik@contoso.com  SE 08:50 -> AL 09:02, Gap 00:12:05  -> two countries 12 minutes apart (suspicious)
+// Must NOT appear:
+//   frida@contoso.com   SE twice                -> same country
+//   gustav@contoso.com  SE -> DE, 8 hours apart  -> real travel is possible
+
+let SigninLogs =
+    datatable(TimeGenerated:datetime, UserPrincipalName:string, IPAddress:string, ResultType:string, Location:string)
+    [
+        // erik: Sweden, then Albania 12 minutes later -> should show up
+        datetime(2026-10-20T08:50:00), "erik@contoso.com",   "198.51.100.20", "0", "SE",
+        datetime(2026-10-20T09:02:05), "erik@contoso.com",   "203.0.113.50",  "0", "AL",
+        // frida: Sweden twice -> should not show up
+        datetime(2026-10-20T09:05:00), "frida@contoso.com",  "198.51.100.10", "0", "SE",
+        datetime(2026-10-20T09:30:00), "frida@contoso.com",  "198.51.100.10", "0", "SE",
+        // gustav: Sweden, then Germany 8 hours later (a flight is possible) -> should not show up
+        datetime(2026-10-20T08:00:00), "gustav@contoso.com", "198.51.100.40", "0", "SE",
+        datetime(2026-10-20T16:00:00), "gustav@contoso.com", "192.0.2.40",    "0", "DE"
+    ];
+let max_gap = 1h;
+SigninLogs
+| where ResultType == "0"
+| project TimeGenerated, UserPrincipalName, IPAddress, Location
+| sort by UserPrincipalName asc, TimeGenerated asc
+| extend PrevUser = prev(UserPrincipalName), PrevTime = prev(TimeGenerated),
+         PrevLocation = prev(Location), PrevIP = prev(IPAddress)
+| where UserPrincipalName == PrevUser
+    and Location != PrevLocation
+    and TimeGenerated - PrevTime <= max_gap
+| project UserPrincipalName, PrevTime, PrevLocation, PrevIP, TimeGenerated, Location, IPAddress,
+          Gap = TimeGenerated - PrevTime
