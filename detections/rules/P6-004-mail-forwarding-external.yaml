@@ -1,0 +1,54 @@
+id: P6-004
+title: "External Mail Forwarding"
+status: draft
+severity: medium
+
+goal: |
+  Detects when a user sets up mail forwarding to an external address. 
+  After taking over an account, attackers often set up forwarding so they 
+  keep receiving mail even after the password is reset.
+
+mitre:
+  - tactic: "Collection"
+    technique: "T1114.003"
+
+data_sources:
+  - table: "OfficeActivity"
+    connector: "Microsoft 365"
+
+schedule:
+  frequency: 1h
+  lookback: 1h
+
+threshold:
+  value: "Any forwarding setting that points outside internal_domain"
+  reason: |
+    One external forward is enough to look at; it can leak mail silently
+    for a long time. Internal forwards are excluded to keep noise down.
+
+query: |
+  let internal_domain = "contoso.com";   // change to the lab tenant's domain
+  let forward_params = dynamic(["ForwardTo", "ForwardAsAttachmentTo", "RedirectTo", "ForwardingSmtpAddress", "ForwardingAddress"]);
+  OfficeActivity
+  | where Operation in ("New-InboxRule", "Set-InboxRule", "Set-Mailbox")
+  | mv-expand Param = parse_json(Parameters)
+  | where tostring(Param.Name) in (forward_params)
+  | extend ForwardTarget = tolower(tostring(Param.Value))
+  | where isnotempty(ForwardTarget) and not(ForwardTarget endswith strcat("@", internal_domain))
+  | project TimeGenerated, UserId, ClientIP, Operation, ForwardParameter = tostring(Param.Name), ForwardTarget
+
+blind_spots:
+  - "Forwarding to an address hidden behind a corporate domain (for example a forwarding rule to an internal mailbox that then forwards externally) is not detected."
+  - "When one setting lists several addresses and the last one is internal, an external address earlier in the list is missed."
+  - "Events ingested late can fall between two runs, because the lookback equals the frequency."
+
+false_positives:
+  - "Users who forward their mail to a personal address for legitimate reasons, such as working from home or using a personal device."
+
+test:
+  attack_step: "create-forwarding-rule"
+  expected_result: "One row per external forward: the compromised test user, the operation and the outside address."
+
+tuning_history:
+  - date: 2026-10-22
+    change: "Created. Tested against sample data in detections/tests/P6-004-test.kql."

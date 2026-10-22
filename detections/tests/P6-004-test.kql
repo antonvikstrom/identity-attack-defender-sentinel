@@ -1,0 +1,36 @@
+// Test for P6-004: mail forwarding to an external address.
+// Run in Azure Data Explorer or Sentinel Logs.
+//
+// Expected: exactly 2 rows
+//   erik@contoso.com    New-InboxRule  ForwardTo              collector@evil.example         -> inbox rule to outside (true positive)
+//   gustav@contoso.com  Set-Mailbox    ForwardingSmtpAddress  smtp:gustav.home@example.org   -> mailbox forwarding to outside (true positive)
+//
+// Must NOT appear:
+//   frida@contoso.com  MoveToFolder only           -> no forwarding
+//   anna@contoso.com   ForwardTo boss@contoso.com  -> internal forward
+
+let OfficeActivity =
+    datatable(TimeGenerated:datetime, Operation:string, UserId:string, ClientIP:string, Parameters:string)
+    [
+        // Inbox rule forwarding to an outside address -> SHOULD alert
+        datetime(2026-10-20T09:20:00), "New-InboxRule", "erik@contoso.com", "203.0.113.50",
+            '[{"Name":"Name","Value":"."},{"Name":"ForwardTo","Value":"collector@evil.example"}]',
+        // Mailbox forwarding to an outside address -> SHOULD alert
+        datetime(2026-10-20T09:40:00), "Set-Mailbox", "gustav@contoso.com", "192.0.2.40",
+            '[{"Name":"Identity","Value":"gustav@contoso.com"},{"Name":"ForwardingSmtpAddress","Value":"smtp:gustav.home@example.org"}]',
+        // Normal inbox rule that only moves mail to a folder -> no alert
+        datetime(2026-10-20T10:00:00), "New-InboxRule", "frida@contoso.com", "198.51.100.10",
+            '[{"Name":"Name","Value":"Newsletters"},{"Name":"MoveToFolder","Value":"Newsletters"}]',
+        // Forwarding to a colleague inside the company -> no alert
+        datetime(2026-10-20T10:05:00), "New-InboxRule", "anna@contoso.com", "198.51.100.30",
+            '[{"Name":"Name","Value":"To boss"},{"Name":"ForwardTo","Value":"boss@contoso.com"}]'
+    ];
+let internal_domain = "contoso.com";
+let forward_params = dynamic(["ForwardTo", "ForwardAsAttachmentTo", "RedirectTo", "ForwardingSmtpAddress", "ForwardingAddress"]);
+OfficeActivity
+| where Operation in ("New-InboxRule", "Set-InboxRule", "Set-Mailbox")
+| mv-expand Param = parse_json(Parameters)
+| where tostring(Param.Name) in (forward_params)
+| extend ForwardTarget = tolower(tostring(Param.Value))
+| where isnotempty(ForwardTarget) and not(ForwardTarget endswith strcat("@", internal_domain))
+| project TimeGenerated, UserId, ClientIP, Operation, ForwardParameter = tostring(Param.Name), ForwardTarget

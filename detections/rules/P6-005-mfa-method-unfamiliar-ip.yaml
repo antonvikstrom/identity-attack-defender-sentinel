@@ -1,0 +1,64 @@
+id: P6-005
+title: "Unfamiliar IP Address for MFA"
+status: draft
+severity: medium
+
+goal: |
+  Detects when a user registers security info (MFA) from an IP address that is not in the user's known IPs for the last 14 days. 
+  This can indicate that an attacker has compromised the account and is trying to set up MFA to maintain access.
+
+mitre:
+  - tactic: "Persistence"
+    technique: "T1098.005"
+
+data_sources:
+  - table: "AuditLogs"
+    connector: "Microsoft Entra ID"
+  - table: "SigninLogs"
+    connector: "Microsoft Entra ID"
+
+schedule:
+  frequency: 1h
+  lookback: 14d
+
+threshold:
+  value: "Any successful registration of security info from an unfamiliar IP address"
+  reason: |
+    One registration from an unfamiliar IP is enough to look at. 
+    The rule uses a 14-day baseline to determine known IPs for each user.
+
+query: |
+  let ref_time = now();
+  let baseline_period = 14d;
+  let detection_window = 1h;
+  let KnownIPs =
+      SigninLogs
+      | where TimeGenerated between ((ref_time - baseline_period) .. (ref_time - detection_window))
+      | where ResultType == "0"
+      | summarize KnownIPs = make_set(IPAddress) by UserPrincipalName;
+  AuditLogs
+  | where TimeGenerated > ref_time - detection_window
+  | where OperationName == "User registered security info" and Result == "success"
+  | extend UserPrincipalName = tostring(InitiatedBy.user.userPrincipalName),
+          IPAddress         = tostring(InitiatedBy.user.ipAddress)
+  | join kind=inner KnownIPs on UserPrincipalName
+  | where not(set_has_element(KnownIPs, IPAddress))
+  | project TimeGenerated, UserPrincipalName, IPAddress, KnownIPs
+
+blind_spots:
+  - "New users with no sign-ins in the last 14 days are skipped (inner join), so the rule cannot judge them."
+  - "If the attacker signed in successfully from the same IP more than an hour before registering, that IP is already in KnownIPs, so the registration is not flagged."
+  - "Events ingested late can fall between two runs, because the 1h detection window equals the run frequency."
+
+false_positives:
+  - "Users who legitimately register security info from a new location, such as when traveling or using a new device."
+  - "Users who use a corporate VPN or cloud proxy that exits from a different IP address than their usual sign-ins."
+  - "Registrations where the audit event has no IP address alert, because an empty IP is never in KnownIPs."
+
+test:
+  attack_step: "register-security-info-from-unfamiliar-ip"
+  expected_result: "One row: the compromised test user, the unfamiliar IP address, KnownIPs not containing it."
+
+tuning_history:
+  - date: 2026-10-22
+    change: "Created. Tested against sample data in detections/tests/P6-005-test.kql."

@@ -1,0 +1,55 @@
+id: P6-003
+title: "User added to a privileged Entra ID role"
+status: draft
+severity: high
+
+goal: |
+  Detects when a user adds themselves or another user to a privileged role. 
+  This is often the first step in an attack, where an attacker with a compromised 
+  account escalates privileges to gain access to sensitive data or perform further attacks.
+
+mitre:
+  - tactic: "Persistence"
+    technique: "T1098.003"
+
+data_sources:
+  - table: "AuditLogs"
+    connector: "Microsoft Entra ID"
+
+schedule:
+  frequency: 1h
+  lookback: 1h
+
+threshold:
+  value: "Any successful assignment to a role in the privileged_roles list"
+  reason: |
+    One assignment to a powerful role is enough to look at.
+    The list is kept short so normal low-privilege assignments stay quiet.
+
+query: |
+  let privileged_roles = dynamic(["Global Administrator", "Privileged Role Administrator", "Security Administrator", "Exchange Administrator", "User Administrator", "Application Administrator"]);
+  AuditLogs
+  | where OperationName == "Add member to role" and Result == "success"
+  | extend Actor      = tostring(InitiatedBy.user.userPrincipalName),
+          TargetUser = tostring(TargetResources[0].userPrincipalName)
+  | mv-expand Prop = TargetResources[0].modifiedProperties
+  | where tostring(Prop.displayName) == "Role.DisplayName"
+  | extend RoleName = trim(@'"', tostring(Prop.newValue))
+  | where RoleName in (privileged_roles)
+  | project TimeGenerated, Actor, TargetUser, RoleName
+
+blind_spots:
+  - "Roles that aren't in the privileged_roles list are not detected."
+  - "PIM eligible assignments use a different operation name, so they are not detected."
+  - "Events ingested late can fall between two runs, because the lookback equals the frequency."
+
+false_positives:
+  - "Planned admin work, such as onboarding a new admin or changing a role for a user."
+
+test:
+  attack_step: "add-privileged-role"
+  expected_result: "One row: the compromised test user added to Global Administrator."
+
+tuning_history:
+  - date: 2026-10-21
+    change: "Created. Tested against sample data in detections/tests/P6-003-test.kql."

@@ -1,0 +1,41 @@
+// Test for P6-003: user added to a privileged Entra ID role.
+// Run in Azure Data Explorer or Sentinel Logs.
+//
+// Expected: exactly 1 row
+//   erik@contoso.com added erik@contoso.com to Global Administrator  -> self-assignment to a privileged role (true positive)
+//
+// Must NOT appear:
+//   frida@contoso.com  Reports Reader      -> not a privileged role
+//   anna@contoso.com   Global Administrator, Result "failure"  -> failed attempt
+//   gustav@contoso.com "Update user"       -> a different operation
+
+let AuditLogs =
+    datatable(TimeGenerated:datetime, OperationName:string, Result:string, InitiatedBy:dynamic, TargetResources:dynamic)
+    [
+        // Compromised account gives itself Global Administrator -> SHOULD alert
+        datetime(2026-10-20T09:15:00), "Add member to role", "success",
+            dynamic({"user":{"userPrincipalName":"erik@contoso.com"}}),
+            dynamic([{"userPrincipalName":"erik@contoso.com","modifiedProperties":[{"displayName":"Role.DisplayName","newValue":"\"Global Administrator\""}]}]),
+        // Normal admin work: a low-privilege role -> no alert
+        datetime(2026-10-20T10:00:00), "Add member to role", "success",
+            dynamic({"user":{"userPrincipalName":"admin@contoso.com"}}),
+            dynamic([{"userPrincipalName":"frida@contoso.com","modifiedProperties":[{"displayName":"Role.DisplayName","newValue":"\"Reports Reader\""}]}]),
+        // Attempt that failed -> no alert
+        datetime(2026-10-20T10:05:00), "Add member to role", "failure",
+            dynamic({"user":{"userPrincipalName":"anna@contoso.com"}}),
+            dynamic([{"userPrincipalName":"anna@contoso.com","modifiedProperties":[{"displayName":"Role.DisplayName","newValue":"\"Global Administrator\""}]}]),
+        // A different kind of change -> no alert
+        datetime(2026-10-20T10:10:00), "Update user", "success",
+            dynamic({"user":{"userPrincipalName":"admin@contoso.com"}}),
+            dynamic([{"userPrincipalName":"gustav@contoso.com","modifiedProperties":[]}])
+    ];
+let privileged_roles = dynamic(["Global Administrator", "Privileged Role Administrator", "Security Administrator", "Exchange Administrator", "User Administrator", "Application Administrator"]);
+AuditLogs
+| where OperationName == "Add member to role" and Result == "success"
+| extend Actor      = tostring(InitiatedBy.user.userPrincipalName),
+         TargetUser = tostring(TargetResources[0].userPrincipalName)
+| mv-expand Prop = TargetResources[0].modifiedProperties
+| where tostring(Prop.displayName) == "Role.DisplayName"
+| extend RoleName = trim(@'"', tostring(Prop.newValue))
+| where RoleName in (privileged_roles)
+| project TimeGenerated, Actor, TargetUser, RoleName
