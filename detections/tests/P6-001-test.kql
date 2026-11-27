@@ -2,7 +2,7 @@
 // Run in Azure Data Explorer or Sentinel Logs.
 //
 // Expected: exactly 1 row
-//   203.0.113.50  FailedUsers 5, SuccessUsers ["erik@contoso.com"]  -> spray, then success (true positive)
+//   203.0.113.50  FailedUsers 5, SuccessUser erik@contoso.com  -> spray, then success (true positive)
 //
 // Must NOT appear:
 //   198.51.100.10  one user, one typo, then success                 -> normal noise
@@ -44,3 +44,4 @@ SigninLogs
 | where FailedUsers >= min_failed_users
     and array_length(SuccessUsers) > 0
     and LastSuccess > FirstFailure
+| mv-expand SuccessUser = SuccessUsers to typeof(string)
