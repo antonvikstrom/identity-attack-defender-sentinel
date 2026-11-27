@@ -11,14 +11,16 @@ from pathlib import Path
 import yaml
 
 RULES_DIR = Path("detections/rules")
+TESTS_DIR = Path("detections/tests")
 
 REQUIRED_FIELDS = [
     "id", "title", "status", "severity", "goal", "mitre", "data_sources",
-    "schedule", "threshold", "query", "blind_spots", "false_positives",
-    "test", "tuning_history",
+    "schedule", "threshold", "query", "entities", "blind_spots",
+    "false_positives", "test", "tuning_history",
 ]
 ALLOWED_STATUS = {"draft", "testing", "production"}
 ALLOWED_SEVERITY = {"informational", "low", "medium", "high"}
+ALLOWED_ENTITY_TYPES = {"Account", "IP", "Host", "URL", "Mailbox", "CloudApplication"}
 ID_PATTERN = re.compile(r"^P6-\d{3}$")                # P6-001
 TECHNIQUE_PATTERN = re.compile(r"^T\d{4}(\.\d{3})?$")  # T1110 or T1110.003
 
@@ -62,6 +64,32 @@ def check_rule(rule):
             if not TECHNIQUE_PATTERN.match(str(technique)):
                 errors.append(f"mitre item {i}: technique '{technique}' should look like T1110.003")
 
+    # New: entity mapping, so Sentinel can build the incident graph.
+    entities = rule["entities"]
+    if not isinstance(entities, list) or len(entities) == 0:
+        errors.append("entities must be a list with at least one item")
+    else:
+        for i, ent in enumerate(entities, start=1):
+            if not isinstance(ent, dict):
+                errors.append(f"entities item {i}: must have type and column")
+                continue
+            if ent.get("type") not in ALLOWED_ENTITY_TYPES:
+                errors.append(f"entities item {i}: type '{ent.get('type')}' must be one of {sorted(ALLOWED_ENTITY_TYPES)}")
+            column = ent.get("column")
+            if not is_filled(column):
+                errors.append(f"entities item {i}: column is empty")
+            elif isinstance(rule["query"], str) and column not in rule["query"]:
+                errors.append(f"entities item {i}: column '{column}' does not appear in the query")
+
+    # New: the test fields must be filled in.
+    test = rule["test"]
+    if not isinstance(test, dict):
+        errors.append("test must have attack_step and expected_result")
+    else:
+        for key in ("attack_step", "expected_result"):
+            if not is_filled(test.get(key)):
+                errors.append(f"test.{key} is empty")
+
     history = rule["tuning_history"]
     if not isinstance(history, list) or len(history) == 0:
         errors.append("tuning_history must be a list with at least one entry")
@@ -71,6 +99,11 @@ def check_rule(rule):
                 errors.append(f"tuning_history entry {i}: date must look like 2026-10-18")
             if not isinstance(entry, dict) or not is_filled(entry.get("change")):
                 errors.append(f"tuning_history entry {i}: change is empty")
+
+    # New: every rule needs its sample-data test file.
+    test_file = TESTS_DIR / f"{rule['id']}-test.kql"
+    if not test_file.exists():
+        errors.append(f"test file missing: {test_file}")
 
     return errors
 

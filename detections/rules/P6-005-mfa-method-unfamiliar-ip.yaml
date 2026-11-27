@@ -45,6 +45,12 @@ query: |
   | where not(set_has_element(KnownIPs, IPAddress))
   | project TimeGenerated, UserPrincipalName, IPAddress, KnownIPs
 
+entities:
+  - type: "Account"
+    column: "UserPrincipalName"
+  - type: "IP"
+    column: "IPAddress"
+
 blind_spots:
   - "New users with no sign-ins in the last 14 days are skipped (inner join), so the rule cannot judge them."
   - "If the attacker signed in successfully from the same IP more than an hour before registering, that IP is already in KnownIPs, so the registration is not flagged."

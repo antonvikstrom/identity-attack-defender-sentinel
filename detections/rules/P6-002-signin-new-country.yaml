@@ -45,6 +45,12 @@ query: |
   | where not(set_has_element(KnownCountries, Location))
   | project TimeGenerated, UserPrincipalName, IPAddress, Location, KnownCountries
 
+entities:
+  - type: "Account"
+    column: "UserPrincipalName"
+  - type: "IP"
+    column: "IPAddress"
+
 blind_spots:
   - "New users with no sign-ins in the last 14 days are skipped (inner join), so the rule cannot judge them."
   - "An attacker using a VPN exit in the user's own country does not trigger it."

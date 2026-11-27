@@ -37,6 +37,12 @@ query: |
   | where isnotempty(ForwardTarget) and not(ForwardTarget endswith strcat("@", internal_domain))
   | project TimeGenerated, UserId, ClientIP, Operation, ForwardParameter = tostring(Param.Name), ForwardTarget
 
+entities:
+  - type: "Account"
+    column: "UserId"
+  - type: "IP"
+    column: "ClientIP"
+
 blind_spots:
   - "Forwarding to an address hidden behind a corporate domain (for example a forwarding rule to an internal mailbox that then forwards externally) is not detected."
   - "When one setting lists several addresses and the last one is internal, an external address earlier in the list is missed."

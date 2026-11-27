@@ -29,6 +29,10 @@ threshold:
 query: |
   // KQL goes here, as many lines as needed
 
+entities:
+  - type: ""     # Account | IP | Host | URL | Mailbox | CloudApplication
+    column: ""   # a column the query returns
+
 blind_spots:
   - ""
 

@@ -38,6 +38,12 @@ query: |
   | where RoleName in (privileged_roles)
   | project TimeGenerated, Actor, TargetUser, RoleName
 
+entities:
+  - type: "Account"
+    column: "Actor"
+  - type: "Account"
+    column: "TargetUser"
+
 blind_spots:
   - "Roles that aren't in the privileged_roles list are not detected."
   - "PIM eligible assignments use a different operation name, so they are not detected."
